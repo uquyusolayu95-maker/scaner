@@ -26,7 +26,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import logging
 
-from telegram import Update, ParseMode
+from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # ===================== НАСТРОЙКИ =====================
@@ -521,3 +522,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
