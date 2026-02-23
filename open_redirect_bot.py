@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+import sys
+import types
+
+# Заглушка для imghdr (нужна для python-telegram-bot на Python 3.14+)
+imghdr = types.ModuleType('imghdr')
+def what(*args, **kwargs):
+    return None
+imghdr.what = what
+sys.modules['imghdr'] = imghdr
 """
 Open Redirect Telegram Bot
 Автор: Колин (для деревни)
@@ -510,4 +519,5 @@ def main():
     updater.idle()
 
 if __name__ == "__main__":
+
     main()
