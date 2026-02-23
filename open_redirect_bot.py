@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Open Redirect Telegram Bot
+Автор: Колин (для деревни)
+Запуск: python3 open_redirect_bot.py
+"""
+
 import sys
 import types
 
@@ -8,14 +14,8 @@ def what(*args, **kwargs):
     return None
 imghdr.what = what
 sys.modules['imghdr'] = imghdr
-"""
-Open Redirect Telegram Bot
-Автор: Колин (для деревни)
-Запуск: python3 open_redirect_bot.py
-"""
 
 import os
-import sys
 import requests
 import time
 import random
@@ -28,10 +28,10 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext
+from telegram.ext import filters
 
 # ===================== НАСТРОЙКИ =====================
-# ТВОЙ ТОКЕН - ВСТАВЛЕН
 TOKEN = "8618230715:AAF30AK5Nef4KnLuILUXu7GKpKO4TLrHWYc"
 
 USER_AGENTS = [
@@ -240,7 +240,6 @@ def search_command(update: Update, context: CallbackContext):
     """Обработчик команды /search"""
     user_id = update.effective_user.id
     
-    # Сохраняем состояние пользователя
     with sessions_lock:
         user_sessions[user_id] = {
             'state': 'awaiting_search_query',
@@ -294,12 +293,10 @@ def handle_message(update: Update, context: CallbackContext):
     state = session.get('state')
     
     if state == 'awaiting_search_query':
-        # Пользователь ввел поисковый запрос
         query = text if text != 'default' else 'site:.com'
         
         update.message.reply_text(f"🔍 Ищу домены по запросу: {query}")
         
-        # Ищем домены
         try:
             domains = search_domains_google(query, max_pages=2)
             update.message.reply_text(f"✅ Найдено доменов: {len(domains)}")
@@ -308,14 +305,12 @@ def handle_message(update: Update, context: CallbackContext):
                 update.message.reply_text("❌ Домены не найдены")
                 return
             
-            # Генерируем URL
             urls = []
-            for domain in domains[:20]:  # Ограничим для скорости
+            for domain in domains[:20]:
                 urls.extend(generate_urls_from_domain(domain))
             
             update.message.reply_text(f"🔍 Сканирую {len(urls)} URL... Это может занять время")
             
-            # Функция для обновления прогресса
             def progress(current, total):
                 if current % 50 == 0 or current == total:
                     context.bot.send_message(
@@ -323,22 +318,19 @@ def handle_message(update: Update, context: CallbackContext):
                         text=f"Прогресс: {current}/{total}"
                     )
             
-            # Сканируем
             results = scan_urls(urls, max_workers=5, progress_callback=progress)
             
-            # Отправляем результаты
             if results:
                 msg = f"✅ Найдено уязвимостей на {len(results)} URL:\n\n"
-                for url, vulns in list(results.items())[:10]:  # Первые 10
+                for url, vulns in list(results.items())[:10]:
                     msg += f"📍 {url}\n"
-                    for v in vulns[:3]:  # Первые 3 параметра
+                    for v in vulns[:3]:
                         msg += f"   Параметр: {v['param']}\n"
                     msg += "\n"
                 
                 if len(results) > 10:
                     msg += f"... и еще {len(results)-10} URL\n"
                 
-                # Сохраняем в файл и отправляем
                 filename = f"results_{user_id}.txt"
                 with open(filename, 'w') as f:
                     for url, vulns in results.items():
@@ -357,12 +349,10 @@ def handle_message(update: Update, context: CallbackContext):
         except Exception as e:
             update.message.reply_text(f"❌ Ошибка: {str(e)}")
         
-        # Очищаем сессию
         with sessions_lock:
             del user_sessions[user_id]
     
     elif state == 'awaiting_url':
-        # Пользователь ввел URL для сканирования
         url = text
         
         if not url.startswith(('http://', 'https://')):
@@ -371,7 +361,6 @@ def handle_message(update: Update, context: CallbackContext):
         update.message.reply_text(f"🔍 Сканирую {url}...")
         
         try:
-            # Сканируем
             results = scan_single_url(url)
             
             if results:
@@ -390,7 +379,6 @@ def handle_message(update: Update, context: CallbackContext):
         except Exception as e:
             update.message.reply_text(f"❌ Ошибка: {str(e)}")
         
-        # Очищаем сессию
         with sessions_lock:
             del user_sessions[user_id]
 
@@ -411,12 +399,10 @@ def handle_file(update: Update, context: CallbackContext):
     
     update.message.reply_text("📥 Загружаю файл...")
     
-    # Скачиваем файл
     file_obj = file.get_file()
     filename = f"upload_{user_id}.txt"
     file_obj.download(filename)
     
-    # Читаем URL
     try:
         with open(filename, 'r') as f:
             urls = [line.strip() for line in f if line.strip()]
@@ -427,12 +413,10 @@ def handle_file(update: Update, context: CallbackContext):
         
         update.message.reply_text(f"✅ Загружено {len(urls)} URL")
         
-        # Добавляем протокол если нужно
         urls = [u if u.startswith(('http://', 'https://')) else 'https://' + u for u in urls]
         
         update.message.reply_text(f"🔍 Сканирую {len(urls)} URL... Это может занять время")
         
-        # Функция для обновления прогресса
         def progress(current, total):
             if current % 20 == 0 or current == total:
                 context.bot.send_message(
@@ -440,10 +424,8 @@ def handle_file(update: Update, context: CallbackContext):
                     text=f"Прогресс: {current}/{total}"
                 )
         
-        # Сканируем
         results = scan_urls(urls, max_workers=5, progress_callback=progress)
         
-        # Отправляем результаты
         if results:
             msg = f"✅ Найдено уязвимостей на {len(results)} URL:\n\n"
             for url, vulns in list(results.items())[:10]:
@@ -455,7 +437,6 @@ def handle_file(update: Update, context: CallbackContext):
             if len(results) > 10:
                 msg += f"... и еще {len(results)-10} URL\n"
             
-            # Сохраняем в файл
             results_filename = f"results_{user_id}.txt"
             with open(results_filename, 'w') as f:
                 for url, vulns in results.items():
@@ -474,7 +455,6 @@ def handle_file(update: Update, context: CallbackContext):
     except Exception as e:
         update.message.reply_text(f"❌ Ошибка: {str(e)}")
     finally:
-        # Чистим файлы
         if os.path.exists(filename):
             os.remove(filename)
         
@@ -489,37 +469,24 @@ def error_handler(update: Update, context: CallbackContext):
 
 def main():
     """Запуск бота"""
-    # Проверка что токен не остался заглушкой
-    if TOKEN == "ВСТАВЬ_СЮДА_ТОКЕН_БОТА":
-        print("ОШИБКА: Токен не заменен!")
-        sys.exit(1)
-    
-    # Создаем бота
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
     
-    # Регистрируем обработчики команд
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help_command))
     dp.add_handler(CommandHandler("search", search_command))
     dp.add_handler(CommandHandler("scanurl", scanurl_command))
     dp.add_handler(CommandHandler("scanlist", scanlist_command))
     
-    # Обработчик текстовых сообщений
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    # ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ
+    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    dp.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     
-    # Обработчик файлов
-    dp.add_handler(MessageHandler(Filters.document, handle_file))
-    
-    # Обработчик ошибок
     dp.add_error_handler(error_handler)
     
-    # Запускаем
     print("Бот запущен...")
     updater.start_polling()
     updater.idle()
 
 if __name__ == "__main__":
-
     main()
-
