@@ -1,0 +1,1 @@
+worker: python open_redirect_bot.py
