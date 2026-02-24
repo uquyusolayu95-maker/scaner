@@ -6,7 +6,14 @@ Open Redirect Telegram Bot
 """
 
 import sys
-import types
+import logging
+
+# Принудительно выводим всё в stdout
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    stream=sys.stdout  # ← Эта строка важна!
+)
 
 # Заглушка для imghdr (нужна для python-telegram-bot на Python 3.14+)
 imghdr = types.ModuleType('imghdr')
@@ -469,6 +476,7 @@ def error_handler(update: Update, context: CallbackContext):
 
 def main():
     """Запуск бота"""
+    sys.stdout.flush()  # ← Принудительно сбрасываем буфер
     # Новый способ создания приложения (для версии 20.x)
     application = Application.builder().token(TOKEN).build()
     
@@ -488,6 +496,8 @@ def main():
     
     print("Бот запущен...")
     # Запускаем бота
+    sys.stdout.flush()
     application.run_polling()
+
 
 
