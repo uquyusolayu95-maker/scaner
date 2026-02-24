@@ -5,6 +5,7 @@ import sys
 import types
 import logging
 import traceback
+import asyncio
 import os
 import requests
 import time
@@ -425,6 +426,16 @@ def main():
         print("🟢 Создаю приложение...")
         sys.stdout.flush()
         
+        # СОЗДАЕМ EVENT LOop ПРАВИЛЬНО
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        print(f"🟢 Event loop создан: {loop}")
+        sys.stdout.flush()
+        
         application = Application.builder().token(TOKEN).build()
         
         print("🟢 Добавляю обработчики...")
@@ -447,6 +458,7 @@ def main():
         print("🟢 Запускаю polling...")
         sys.stdout.flush()
         
+        # ЗАПУСКАЕМ С ЯВНЫМ LOOPOM
         application.run_polling()
         
     except Exception as e:
@@ -463,3 +475,4 @@ if __name__ == "__main__":
         traceback.print_exc(file=sys.stdout)
         sys.stdout.flush()
         sys.exit(1)
+
