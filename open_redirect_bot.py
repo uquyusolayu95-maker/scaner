@@ -7,6 +7,7 @@ Open Redirect Telegram Bot
 
 import sys
 import types
+import logging
 
 # Принудительно выводим всё в stdout
 logging.basicConfig(
@@ -498,6 +499,7 @@ def main():
     # Запускаем бота
     sys.stdout.flush()
     application.run_polling()
+
 
 
 
