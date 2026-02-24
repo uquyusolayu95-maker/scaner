@@ -28,7 +28,7 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext
 from telegram.ext import filters
 
 # ===================== НАСТРОЙКИ =====================
@@ -469,25 +469,25 @@ def error_handler(update: Update, context: CallbackContext):
 
 def main():
     """Запуск бота"""
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
+    # Новый способ создания приложения (для версии 20.x)
+    application = Application.builder().token(TOKEN).build()
     
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help_command))
-    dp.add_handler(CommandHandler("search", search_command))
-    dp.add_handler(CommandHandler("scanurl", scanurl_command))
-    dp.add_handler(CommandHandler("scanlist", scanlist_command))
+    # Добавляем обработчики команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("search", search_command))
+    application.add_handler(CommandHandler("scanurl", scanurl_command))
+    application.add_handler(CommandHandler("scanlist", scanlist_command))
     
-    # ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ
-    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    dp.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    # Добавляем обработчики сообщений
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     
-    dp.add_error_handler(error_handler)
+    # Добавляем обработчик ошибок
+    application.add_error_handler(error_handler)
     
     print("Бот запущен...")
-    updater.start_polling()
-    updater.idle()
+    # Запускаем бота
+    application.run_polling()
 
-if __name__ == "__main__":
-    main()
 
