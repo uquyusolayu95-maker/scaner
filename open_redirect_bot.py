@@ -1,28 +1,10 @@
 #!/usr/bin/env python3
-"""
-Open Redirect Telegram Bot
-Автор: Колин (для деревни)
-Запуск: python3 open_redirect_bot.py
-"""
+# -*- coding: utf-8 -*-
 
 import sys
 import types
 import logging
-
-# Принудительно выводим всё в stdout
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    stream=sys.stdout  # ← Эта строка важна!
-)
-
-# Заглушка для imghdr (нужна для python-telegram-bot на Python 3.14+)
-imghdr = types.ModuleType('imghdr')
-def what(*args, **kwargs):
-    return None
-imghdr.what = what
-sys.modules['imghdr'] = imghdr
-
+import traceback
 import os
 import requests
 import time
@@ -32,8 +14,32 @@ import json
 from urllib.parse import urlparse, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-import logging
 
+# ===================== НАСТРОЙКА ЛОГОВ (ВАЖНО!) =====================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    stream=sys.stdout,
+    force=True
+)
+sys.stdout.reconfigure(line_buffering=True)
+
+# Глобальный обработчик ошибок
+def global_exception_handler(exctype, value, tb):
+    logging.critical("🔥 КРИТИЧЕСКАЯ ОШИБКА:", exc_info=(exctype, value, tb))
+    sys.stdout.flush()
+    sys.exit(1)
+
+sys.excepthook = global_exception_handler
+
+# ===================== ЗАГЛУШКА ДЛЯ imghdr =====================
+imghdr = types.ModuleType('imghdr')
+def what(*args, **kwargs):
+    return None
+imghdr.what = what
+sys.modules['imghdr'] = imghdr
+
+# ===================== ИМПОРТЫ БИБЛИОТЕК TELEGRAM =====================
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext
@@ -55,7 +61,6 @@ REDIRECT_PARAMS = [
 ]
 
 TEST_PAYLOAD = "https://example.com"
-ENCODED_PAYLOAD = quote_plus(TEST_PAYLOAD)
 
 PAYLOADS = [
     TEST_PAYLOAD,
@@ -70,21 +75,13 @@ PAYLOADS = [
     f"https://example.com#test",
 ]
 
-# Для хранения состояния пользователей
 user_sessions = {}
 sessions_lock = Lock()
-
-# Настройка логирования
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
-# ===================== ФУНКЦИИ ПОИСКА ДОМЕНОВ =====================
+# ===================== ФУНКЦИИ ПОИСКА =====================
 
 def search_domains_google(query="site:.com", max_pages=2):
-    """Ищет домены через Google"""
     domains = set()
     headers = {"User-Agent": random.choice(USER_AGENTS)}
     
@@ -102,20 +99,19 @@ def search_domains_google(query="site:.com", max_pages=2):
                     domains.add(domain)
             
             time.sleep(random.uniform(2, 4))
-        except Exception:
+        except Exception as e:
+            logger.error(f"Ошибка поиска: {e}")
             continue
     
     return list(domains)
 
 def generate_urls_from_domain(domain):
-    """Генерирует URL для сканирования"""
     common_paths = [
         "/", "/login", "/logout", "/redirect", "/callback", "/auth",
         "/oauth", "/oauth2", "/signin", "/signout", "/return", "/goto",
         "/external", "/out", "/link", "/away", "/go", "/click", "/track",
         "/r", "/u", "/l", "/redirect.php", "/redir.php", "/url.php",
-        "/wp-login.php", "/wp-admin", "/admin", "/user/logout",
-        "/session/logout", "/account/logout"
+        "/wp-login.php", "/wp-admin", "/admin", "/user/logout"
     ]
     
     protocols = ["http://", "https://"]
@@ -131,7 +127,6 @@ def generate_urls_from_domain(domain):
 # ===================== ФУНКЦИИ СКАНИРОВАНИЯ =====================
 
 def check_open_redirect(url, param, payload):
-    """Проверяет один параметр"""
     if '?' in url:
         separator = '&'
     else:
@@ -166,11 +161,11 @@ def check_open_redirect(url, param, payload):
             }
         
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Ошибка при проверке {test_url}: {e}")
         return None
 
 def scan_single_url(url):
-    """Сканирует один URL"""
     results = []
     for param in REDIRECT_PARAMS:
         for payload in PAYLOADS:
@@ -180,7 +175,6 @@ def scan_single_url(url):
     return results
 
 def scan_urls(urls, max_workers=5, progress_callback=None):
-    """Сканирует список URL с прогрессом"""
     all_results = {}
     total = len(urls)
     completed = 0
@@ -198,17 +192,17 @@ def scan_urls(urls, max_workers=5, progress_callback=None):
                 results = future.result()
                 if results:
                     all_results[url] = results
-            except Exception:
+            except Exception as e:
+                logger.error(f"Ошибка при сканировании {url}: {e}")
                 continue
     
     return all_results
 
-# ===================== ОБРАБОТЧИКИ TELEGRAM =====================
+# ===================== ОБРАБОТЧИКИ КОМАНД =====================
 
-def start(update: Update, context: CallbackContext):
-    """Обработчик команды /start"""
+async def start(update: Update, context: CallbackContext):
     user = update.effective_user
-    update.message.reply_text(
+    await update.message.reply_text(
         f"Привет, {user.first_name}!\n\n"
         "Я бот для поиска Open Redirect уязвимостей.\n\n"
         "Команды:\n"
@@ -218,34 +212,17 @@ def start(update: Update, context: CallbackContext):
         "/help - Подробная помощь"
     )
 
-def help_command(update: Update, context: CallbackContext):
-    """Обработчик команды /help"""
+async def help_command(update: Update, context: CallbackContext):
     help_text = """
 *Open Redirect Bot - Помощь*
 
-*Команды:*
-
-/search - Поиск доменов и сканирование
-   Бот найдет домены через Google и просканирует их.
-
+/search - Найти домены и просканировать
 /scanurl - Сканировать конкретный URL
-   Отправь URL, и бот проверит его на open redirect.
-
 /scanlist - Сканировать список URL из файла
-   Отправь текстовый файл с URL (по одному на строку).
-
-*Как использовать:*
-1. Выбери команду
-2. Следуй инструкциям бота
-3. Жди результатов (может занять время)
-
-*Результаты:*
-Бот покажет найденные уязвимости с параметрами и тестовыми URL.
 """
-    update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
-def search_command(update: Update, context: CallbackContext):
-    """Обработчик команды /search"""
+async def search_command(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
     with sessions_lock:
@@ -254,13 +231,12 @@ def search_command(update: Update, context: CallbackContext):
             'data': {}
         }
     
-    update.message.reply_text(
-        "Введите поисковый запрос для Google (например: site:.edu login)\n"
+    await update.message.reply_text(
+        "Введите поисковый запрос для Google\n"
         "Или отправьте 'default' для поиска site:.com"
     )
 
-def scanurl_command(update: Update, context: CallbackContext):
-    """Обработчик команды /scanurl"""
+async def scanurl_command(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
     with sessions_lock:
@@ -269,12 +245,11 @@ def scanurl_command(update: Update, context: CallbackContext):
             'data': {}
         }
     
-    update.message.reply_text(
-        "Отправьте URL для сканирования (например: https://example.com/login)"
+    await update.message.reply_text(
+        "Отправьте URL для сканирования"
     )
 
-def scanlist_command(update: Update, context: CallbackContext):
-    """Обработчик команды /scanlist"""
+async def scanlist_command(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
     with sessions_lock:
@@ -283,19 +258,18 @@ def scanlist_command(update: Update, context: CallbackContext):
             'data': {}
         }
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "Отправьте текстовый файл с URL (по одному на строку)"
     )
 
-def handle_message(update: Update, context: CallbackContext):
-    """Обработчик текстовых сообщений"""
+async def handle_message(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     text = update.message.text
     
     with sessions_lock:
         session = user_sessions.get(user_id)
         if not session:
-            update.message.reply_text("Используйте /start для начала работы")
+            await update.message.reply_text("Используйте /start")
             return
     
     state = session.get('state')
@@ -303,165 +277,136 @@ def handle_message(update: Update, context: CallbackContext):
     if state == 'awaiting_search_query':
         query = text if text != 'default' else 'site:.com'
         
-        update.message.reply_text(f"🔍 Ищу домены по запросу: {query}")
+        await update.message.reply_text(f"🔍 Ищу домены...")
         
         try:
             domains = search_domains_google(query, max_pages=2)
-            update.message.reply_text(f"✅ Найдено доменов: {len(domains)}")
             
             if not domains:
-                update.message.reply_text("❌ Домены не найдены")
+                await update.message.reply_text("❌ Домены не найдены")
                 return
             
             urls = []
             for domain in domains[:20]:
                 urls.extend(generate_urls_from_domain(domain))
             
-            update.message.reply_text(f"🔍 Сканирую {len(urls)} URL... Это может занять время")
+            await update.message.reply_text(f"🔍 Сканирую {len(urls)} URL...")
             
             def progress(current, total):
-                if current % 50 == 0 or current == total:
-                    context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"Прогресс: {current}/{total}"
+                if current % 50 == 0:
+                    context.application.create_task(
+                        update.message.reply_text(f"Прогресс: {current}/{total}")
                     )
             
             results = scan_urls(urls, max_workers=5, progress_callback=progress)
             
             if results:
-                msg = f"✅ Найдено уязвимостей на {len(results)} URL:\n\n"
-                for url, vulns in list(results.items())[:10]:
-                    msg += f"📍 {url}\n"
-                    for v in vulns[:3]:
-                        msg += f"   Параметр: {v['param']}\n"
-                    msg += "\n"
-                
-                if len(results) > 10:
-                    msg += f"... и еще {len(results)-10} URL\n"
+                msg = f"✅ Найдено уязвимостей на {len(results)} URL"
+                await update.message.reply_text(msg)
                 
                 filename = f"results_{user_id}.txt"
                 with open(filename, 'w') as f:
                     for url, vulns in results.items():
                         f.write(f"\n[VULN] {url}\n")
                         for v in vulns:
-                            f.write(f"  {v['param']} -> {v.get('location', 'N/A')}\n")
+                            f.write(f"  {v['param']}\n")
                 
-                update.message.reply_text(msg)
                 with open(filename, 'rb') as f:
-                    context.bot.send_document(chat_id=user_id, document=f)
+                    await update.message.reply_document(f)
                 
                 os.remove(filename)
             else:
-                update.message.reply_text("❌ Уязвимостей не найдено")
+                await update.message.reply_text("❌ Уязвимостей не найдено")
             
         except Exception as e:
-            update.message.reply_text(f"❌ Ошибка: {str(e)}")
+            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+            logger.error(f"Ошибка: {e}", exc_info=True)
         
         with sessions_lock:
             del user_sessions[user_id]
     
     elif state == 'awaiting_url':
         url = text
-        
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
         
-        update.message.reply_text(f"🔍 Сканирую {url}...")
+        await update.message.reply_text(f"🔍 Сканирую...")
         
         try:
             results = scan_single_url(url)
             
             if results:
-                msg = f"✅ Найдено уязвимостей: {len(results)}\n\n"
-                for v in results[:10]:
-                    msg += f"📍 Параметр: {v['param']}\n"
-                    msg += f"   Тест: {v['url']}\n"
-                    if 'location' in v:
-                        msg += f"   Редирект на: {v['location']}\n"
-                    msg += "\n"
-                
-                update.message.reply_text(msg)
+                msg = f"✅ Найдено уязвимостей: {len(results)}"
+                await update.message.reply_text(msg)
             else:
-                update.message.reply_text("❌ Уязвимостей не найдено")
+                await update.message.reply_text("❌ Уязвимостей не найдено")
             
         except Exception as e:
-            update.message.reply_text(f"❌ Ошибка: {str(e)}")
+            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
         
         with sessions_lock:
             del user_sessions[user_id]
 
-def handle_file(update: Update, context: CallbackContext):
-    """Обработчик файлов"""
+async def handle_file(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
     with sessions_lock:
         session = user_sessions.get(user_id)
         if not session or session.get('state') != 'awaiting_file':
-            update.message.reply_text("Используйте /scanlist для загрузки файла")
+            await update.message.reply_text("Используйте /scanlist")
             return
     
     file = update.message.document
     if not file.file_name.endswith('.txt'):
-        update.message.reply_text("❌ Пожалуйста, отправьте текстовый файл (.txt)")
+        await update.message.reply_text("❌ Нужен .txt файл")
         return
     
-    update.message.reply_text("📥 Загружаю файл...")
+    await update.message.reply_text("📥 Загружаю...")
     
-    file_obj = file.get_file()
+    file_obj = await file.get_file()
     filename = f"upload_{user_id}.txt"
-    file_obj.download(filename)
+    await file_obj.download_to_drive(filename)
     
     try:
         with open(filename, 'r') as f:
             urls = [line.strip() for line in f if line.strip()]
         
         if not urls:
-            update.message.reply_text("❌ Файл пуст")
+            await update.message.reply_text("❌ Файл пуст")
             return
-        
-        update.message.reply_text(f"✅ Загружено {len(urls)} URL")
         
         urls = [u if u.startswith(('http://', 'https://')) else 'https://' + u for u in urls]
         
-        update.message.reply_text(f"🔍 Сканирую {len(urls)} URL... Это может занять время")
+        await update.message.reply_text(f"🔍 Сканирую {len(urls)} URL...")
         
         def progress(current, total):
-            if current % 20 == 0 or current == total:
-                context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"Прогресс: {current}/{total}"
+            if current % 20 == 0:
+                context.application.create_task(
+                    update.message.reply_text(f"Прогресс: {current}/{total}")
                 )
         
         results = scan_urls(urls, max_workers=5, progress_callback=progress)
         
         if results:
-            msg = f"✅ Найдено уязвимостей на {len(results)} URL:\n\n"
-            for url, vulns in list(results.items())[:10]:
-                msg += f"📍 {url}\n"
-                for v in vulns[:3]:
-                    msg += f"   Параметр: {v['param']}\n"
-                msg += "\n"
-            
-            if len(results) > 10:
-                msg += f"... и еще {len(results)-10} URL\n"
+            msg = f"✅ Найдено уязвимостей на {len(results)} URL"
+            await update.message.reply_text(msg)
             
             results_filename = f"results_{user_id}.txt"
             with open(results_filename, 'w') as f:
                 for url, vulns in results.items():
                     f.write(f"\n[VULN] {url}\n")
                     for v in vulns:
-                        f.write(f"  {v['param']} -> {v.get('location', 'N/A')}\n")
+                        f.write(f"  {v['param']}\n")
             
-            update.message.reply_text(msg)
             with open(results_filename, 'rb') as f:
-                context.bot.send_document(chat_id=user_id, document=f)
+                await update.message.reply_document(f)
             
             os.remove(results_filename)
         else:
-            update.message.reply_text("❌ Уязвимостей не найдено")
+            await update.message.reply_text("❌ Уязвимостей не найдено")
         
     except Exception as e:
-        update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
     finally:
         if os.path.exists(filename):
             os.remove(filename)
@@ -469,38 +414,52 @@ def handle_file(update: Update, context: CallbackContext):
         with sessions_lock:
             del user_sessions[user_id]
 
-def error_handler(update: Update, context: CallbackContext):
-    """Обработчик ошибок"""
-    logger.error(f"Ошибка: {context.error}")
+async def error_handler(update: Update, context: CallbackContext):
+    logger.error(f"Ошибка: {context.error}", exc_info=True)
 
-# ===================== ЗАПУСК БОТА =====================
+# ===================== ЗАПУСК =====================
 
 def main():
     """Запуск бота"""
-    sys.stdout.flush()  # ← Принудительно сбрасываем буфер
-    # Новый способ создания приложения (для версии 20.x)
-    application = Application.builder().token(TOKEN).build()
-    
-    # Добавляем обработчики команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("search", search_command))
-    application.add_handler(CommandHandler("scanurl", scanurl_command))
-    application.add_handler(CommandHandler("scanlist", scanlist_command))
-    
-    # Добавляем обработчики сообщений
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    
-    # Добавляем обработчик ошибок
-    application.add_error_handler(error_handler)
-    
-    print("Бот запущен...")
-    # Запускаем бота
-    sys.stdout.flush()
-    application.run_polling()
+    try:
+        print("🟢 Создаю приложение...")
+        sys.stdout.flush()
+        
+        application = Application.builder().token(TOKEN).build()
+        
+        print("🟢 Добавляю обработчики...")
+        sys.stdout.flush()
+        
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("search", search_command))
+        application.add_handler(CommandHandler("scanurl", scanurl_command))
+        application.add_handler(CommandHandler("scanlist", scanlist_command))
+        
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+        
+        application.add_error_handler(error_handler)
+        
+        print("🟢 Бот готов к запуску!")
+        sys.stdout.flush()
+        
+        print("🟢 Запускаю polling...")
+        sys.stdout.flush()
+        
+        application.run_polling()
+        
+    except Exception as e:
+        logging.critical(f"🔥 КРИТИЧЕСКАЯ ОШИБКА В MAIN: {e}")
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
+        sys.exit(1)
 
-
-
-
-
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        logging.critical(f"🔥 КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ: {e}")
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
+        sys.exit(1)
