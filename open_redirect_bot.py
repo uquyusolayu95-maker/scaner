@@ -87,19 +87,32 @@ def search_domains_google(query="site:.com", max_pages=1):
     """Ищет домены через Google (обход блокировки)"""
     domains = set()
     
-    # Используем заголовки реального браузера
+    # Ротация User-Agent'ов
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+    ]
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
+        "User-Agent": random.choice(user_agents),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
         "DNT": "1",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1"
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "max-age=0"
     }
     
-    # Кодируем запрос для URL
     import urllib.parse
+    
+    # Кодируем запрос
     encoded_query = urllib.parse.quote_plus(query)
     
     for page in range(max_pages):
@@ -107,13 +120,17 @@ def search_domains_google(query="site:.com", max_pages=1):
         url = f"https://www.google.com/search?q={encoded_query}&start={start}"
         
         try:
-            print(f"[*] Запрос к Google: {url[:100]}...")
+            print(f"[*] Запрос к Google: страница {page+1}")
             sys.stdout.flush()
             
-            # Добавляем таймаут и запрещаем редиректы
-            r = requests.get(
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            # Добавляем куки, чтобы выглядеть как реальный браузер
+            session.cookies.set('CONSENT', 'YES+', domain='.google.com')
+            
+            r = session.get(
                 url, 
-                headers=headers, 
                 timeout=15,
                 allow_redirects=True
             )
@@ -122,58 +139,105 @@ def search_domains_google(query="site:.com", max_pages=1):
             sys.stdout.flush()
             
             if r.status_code == 200:
-                # Ищем все ссылки
-                found = re.findall(r'https?://([^/\s"\']+)', r.text)
+                # Проверяем, не капча ли это
+                if 'captcha' in r.text.lower() or 'recaptcha' in r.text.lower():
+                    print("[!] Google запросил капчу. Переключаюсь на запасной поисковик.")
+                    sys.stdout.flush()
+                    return search_alternative(query)
+                
+                # Ищем ссылки в нормальном HTML
+                found = re.findall(r'<a[^>]*href="https?://([^/"]+)[^"]*"[^>]*>', r.text)
+                
+                # Если не нашли через href, ищем просто ссылки в тексте
+                if not found:
+                    found = re.findall(r'https?://([^/\s"\'<>]+)', r.text)
                 
                 for domain in found:
                     # Чистим домен
                     domain = domain.split('/')[0].split('?')[0].split('#')[0]
                     
-                    # Отсеиваем мусор
+                    # Отсеиваем мусор Google
                     if ('.' in domain 
-                        and not any(x in domain for x in [
+                        and not any(x in domain.lower() for x in [
                             'google', 'youtube', 'blogger', 'gstatic',
-                            'googleapis', 'ytimg', 'ggpht'
+                            'googleapis', 'ytimg', 'ggpht', 'googleusercontent',
+                            'google-analytics', 'googlesyndication', 'doubleclick'
                         ])
-                        and len(domain) < 50):
+                        and len(domain) < 50
+                        and domain.count('.') <= 3):
                         domains.add(domain)
                 
-                print(f"[*] Найдено доменов на странице {page+1}: {len(found)}")
+                print(f"[*] Найдено доменов на странице {page+1}: {len(domains)}")
                 sys.stdout.flush()
+                
+                # Если ничего не нашли, пробуем другой метод
+                if not domains:
+                    print("[*] Пробую другой метод парсинга...")
+                    sys.stdout.flush()
+                    # Ищем в цитатах
+                    found = re.findall(r'>(https?://[^<]+)<', r.text)
+                    for url in found:
+                        if '://' in url:
+                            domain = url.split('/')[2] if len(url.split('/')) > 2 else url
+                            if '.' in domain and not any(x in domain for x in ['google']):
+                                domains.add(domain)
             else:
                 print(f"[!] Google вернул статус {r.status_code}")
                 sys.stdout.flush()
             
             # Ждём между запросами
-            time.sleep(random.uniform(3, 5))
+            time.sleep(random.uniform(5, 8))
             
         except Exception as e:
             print(f"[!] Ошибка при запросе: {e}")
             sys.stdout.flush()
             continue
     
-    # Если ничего не нашли через прямой запрос, используем запасной вариант
+    # Если ничего не нашли, используем запасной поисковик
     if not domains:
-        print("[*] Пробую запасной вариант...")
+        print("[*] Google не дал результатов. Пробую Bing...")
         sys.stdout.flush()
-        
-        # Пробуем через startpage.com (не блокирует)
-        try:
-            sp_url = f"https://www.startpage.com/sp/search?query={encoded_query}"
-            r = requests.get(sp_url, headers=headers, timeout=15)
-            
-            if r.status_code == 200:
-                found = re.findall(r'https?://([^/\s"\']+)', r.text)
-                for domain in found:
-                    domain = domain.split('/')[0].split('?')[0].split('#')[0]
-                    if '.' in domain and not any(x in domain for x in ['startpage', 'google']):
-                        domains.add(domain)
-        except Exception as e:
-            print(f"[!] Запасной вариант тоже не сработал: {e}")
-            sys.stdout.flush()
+        return search_bing(query)
     
     return list(domains)
 
+def search_alternative(query):
+    """Поиск через DuckDuckGo (альтернатива)"""
+    domains = set()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    
+    try:
+        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote_plus(query)}"
+        r = requests.get(url, headers=headers, timeout=10)
+        
+        if r.status_code == 200:
+            found = re.findall(r'https?://([^/\s"\'<>]+)', r.text)
+            for domain in found:
+                domain = domain.split('/')[0]
+                if '.' in domain and not any(x in domain for x in ['duckduckgo']):
+                    domains.add(domain)
+        return list(domains)
+    except:
+        return []
+
+def search_bing(query):
+    """Поиск через Bing"""
+    domains = set()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    
+    try:
+        url = f"https://www.bing.com/search?q={urllib.parse.quote_plus(query)}"
+        r = requests.get(url, headers=headers, timeout=10)
+        
+        if r.status_code == 200:
+            found = re.findall(r'https?://([^/\s"\'<>]+)', r.text)
+            for domain in found:
+                domain = domain.split('/')[0]
+                if '.' in domain and not any(x in domain for x in ['bing', 'microsoft']):
+                    domains.add(domain)
+        return list(domains)
+    except:
+        return []
 # ===================== ФУНКЦИИ СКАНИРОВАНИЯ =====================
 
 def check_open_redirect(url, param, payload):
@@ -524,6 +588,7 @@ if __name__ == "__main__":
         traceback.print_exc(file=sys.stdout)
         sys.stdout.flush()
         sys.exit(1)
+
 
 
 
