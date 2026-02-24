@@ -239,7 +239,7 @@ def search_bing(query):
     except:
         return []
         
-        def generate_urls_from_domain(domain):
+def generate_urls_from_domain(domain):    
     """Генерирует URL для сканирования из домена"""
     common_paths = [
         "/", "/login", "/logout", "/redirect", "/callback", "/auth",
@@ -609,6 +609,7 @@ if __name__ == "__main__":
         traceback.print_exc(file=sys.stdout)
         sys.stdout.flush()
         sys.exit(1)
+
 
 
 
