@@ -238,6 +238,27 @@ def search_bing(query):
         return list(domains)
     except:
         return []
+        
+        def generate_urls_from_domain(domain):
+    """Генерирует URL для сканирования из домена"""
+    common_paths = [
+        "/", "/login", "/logout", "/redirect", "/callback", "/auth",
+        "/oauth", "/oauth2", "/signin", "/signout", "/return", "/goto",
+        "/external", "/out", "/link", "/away", "/go", "/click", "/track",
+        "/r", "/u", "/l", "/redirect.php", "/redir.php", "/url.php",
+        "/wp-login.php", "/wp-admin", "/admin", "/user/logout",
+        "/session/logout", "/account/logout"
+    ]
+    
+    protocols = ["http://", "https://"]
+    urls = []
+    
+    for proto in protocols:
+        base = proto + domain
+        for path in common_paths:
+            urls.append(base + path)
+    
+    return urls
 # ===================== ФУНКЦИИ СКАНИРОВАНИЯ =====================
 
 def check_open_redirect(url, param, payload):
@@ -588,6 +609,7 @@ if __name__ == "__main__":
         traceback.print_exc(file=sys.stdout)
         sys.stdout.flush()
         sys.exit(1)
+
 
 
 
